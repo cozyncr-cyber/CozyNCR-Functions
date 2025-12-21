@@ -14,7 +14,7 @@ module.exports = async ({ req, res }) => {
     });
 
     const order = await razorpay.orders.create({
-      amount, // ✅ already in paise
+      amount: amount * 100, // ✅ already in paise
       currency: "INR",
       receipt: bookingId,
     });
