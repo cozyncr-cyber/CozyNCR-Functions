@@ -14,7 +14,11 @@ module.exports = async ({ req, res }) => {
     });
 
     const order = await razorpay.orders.create({
+<<<<<<< HEAD
       amount: amount * 100, // ✅ already in paise
+=======
+      amount, // ✅ already in paise
+>>>>>>> ef3f546 (Added key as output)
       currency: "INR",
       receipt: bookingId,
     });
@@ -31,4 +35,8 @@ module.exports = async ({ req, res }) => {
       500
     );
   }
+<<<<<<< HEAD
 };
+=======
+};
+>>>>>>> ef3f546 (Added key as output)
