@@ -21,7 +21,7 @@ module.exports = async ({ req, res }) => {
 
     return res.json({
       orderId: order.id,
-      amount: order.amount,
+      amount: order.amount * 100,
       currency: order.currency,
       key: process.env.RAZORPAY_KEY_ID, // 🚨 REQUIRED
     });
