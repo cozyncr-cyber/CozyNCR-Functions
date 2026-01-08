@@ -7,6 +7,12 @@ module.exports = async ({ req, res }) => {
     if (!amount || !bookingId) {
       return res.json({ error: "Invalid payload" }, 400);
     }
+    const amountInPaise = Math.round(Number(amount) * 100);
+
+    if (amountInPaise <= 0) {
+      return res.json({ error: "Invalid amount" }, 400);
+    }
+
 
     const razorpay = new Razorpay({
       key_id: process.env.RAZORPAY_KEY_ID,
@@ -14,14 +20,14 @@ module.exports = async ({ req, res }) => {
     });
 
     const order = await razorpay.orders.create({
-      amount * 100, 
+      amount: amountInPaise,
       currency: "INR",
       receipt: bookingId,
     });
 
     return res.json({
       orderId: order.id,
-      amount: order.amount * 100,
+      amount: order.amount,
       currency: order.currency,
       key: process.env.RAZORPAY_KEY_ID, // 🚨 REQUIRED
     });
