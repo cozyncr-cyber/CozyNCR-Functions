@@ -24,9 +24,10 @@ export default async ({ req, res, log }) => {
     if (booking.paid !== "paid") return res.empty();
     if (booking.ownerNotified === true) return res.empty();
 
-    const listing = await db.getRow(
+    // ✅ FIXED: Correct parameter order
+    const listing = await db.getDocument(
       process.env.DATABASE_ID,
-      process.env.LISTINGS_TABLE_ID,
+      process.env.LISTINGS_COLLECTION,
       booking.listingId
     );
 
@@ -37,17 +38,17 @@ export default async ({ req, res, log }) => {
 
     log("Owner ID:", ownerId);
 
-    const tokenList = await db.listRows(
+    const tokenList = await db.listDocuments(
       process.env.DATABASE_ID,
-      process.env.PUSH_TOKENS_TABLE_ID,
+      process.env.PUSH_TOKENS_COLLECTION,
       [Query.equal("userId", ownerId)]
     );
 
-    log("Tokens found:", tokenList.rows.length);
+    log("Tokens found:", tokenList.documents.length);
 
-    if (!tokenList.rows.length) return res.empty();
+    if (!tokenList.documents.length) return res.empty();
 
-    const messages = tokenList.rows.map((doc) => ({
+    const messages = tokenList.documents.map((doc) => ({
       to: doc.token,
       title: "New Booking 🎉",
       body: "You received a paid booking!"
@@ -65,7 +66,7 @@ export default async ({ req, res, log }) => {
     const result = await response.json();
     log("Expo response:", JSON.stringify(result));
 
-    await db.updateRow(
+    await db.updateDocument(
       process.env.DATABASE_ID,
       process.env.BOOKINGS_TABLE_ID,
       booking.$id,
