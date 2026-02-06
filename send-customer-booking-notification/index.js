@@ -15,40 +15,33 @@ export default async ({ req, res, log }) => {
         ? JSON.parse(req.body)
         : req.body;
 
-    const booking = body; // Tables update sends full row
+    const booking = body;
 
     log("Customer notification triggered");
     log("Status:", booking.status);
     log("customerNotified:", booking.customerNotified);
 
-    // Only when confirmed AND not already notified
-    if (booking.status !== "confirmed") {
-      log("Status not confirmed. Exiting.");
-      return res.empty();
-    }
+    if (booking.status !== "confirmed") return res.empty();
+    if (booking.customerNotified === true) return res.empty();
 
-    if (booking.customerNotified === true) {
-      log("Customer already notified. Skipping.");
-      return res.empty();
-    }
+    const customerId =
+      typeof booking.customerId === "object"
+        ? booking.customerId.$id
+        : booking.customerId;
 
-    const customerId = booking.customerId;
     log("Customer ID:", customerId);
 
-    const tokenList = await db.listDocuments(
+    const tokenList = await db.listRows(
       process.env.DATABASE_ID,
-      process.env.PUSH_TOKENS_COLLECTION,
+      process.env.PUSH_TOKENS_TABLE_ID,
       [Query.equal("userId", customerId)]
     );
 
-    log("Tokens found:", tokenList.documents.length);
+    log("Tokens found:", tokenList.rows.length);
 
-    if (!tokenList.documents.length) {
-      log("No push tokens found for customer");
-      return res.empty();
-    }
+    if (!tokenList.rows.length) return res.empty();
 
-    const messages = tokenList.documents.map((doc) => ({
+    const messages = tokenList.rows.map((doc) => ({
       to: doc.token,
       title: "Booking Confirmed ✅",
       body: "Your booking has been confirmed!"
@@ -66,15 +59,12 @@ export default async ({ req, res, log }) => {
     const result = await response.json();
     log("Expo response:", JSON.stringify(result));
 
-    // ✅ Mark as notified (prevents duplicates)
     await db.updateRow(
       process.env.DATABASE_ID,
       process.env.BOOKINGS_TABLE_ID,
       booking.$id,
       { customerNotified: true }
     );
-
-    log("customerNotified set to true");
 
     return res.json({ success: true });
 

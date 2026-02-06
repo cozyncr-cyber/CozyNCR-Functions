@@ -15,46 +15,39 @@ export default async ({ req, res, log }) => {
         ? JSON.parse(req.body)
         : req.body;
 
-    const booking = body; // Tables update sends full row
+    const booking = body;
 
     log("Owner notification triggered");
     log("Paid value:", booking.paid);
     log("ownerNotified:", booking.ownerNotified);
 
-    // Only send when paid AND not already notified
-    if (booking.paid !== "paid") {
-      log("Not paid yet. Exiting.");
-      return res.empty();
-    }
+    if (booking.paid !== "paid") return res.empty();
+    if (booking.ownerNotified === true) return res.empty();
 
-    if (booking.ownerNotified === true) {
-      log("Owner already notified. Skipping.");
-      return res.empty();
-    }
-
-    const listing = await db.getDocument(
+    const listing = await db.getRow(
       process.env.DATABASE_ID,
-      process.env.LISTINGS_COLLECTION,
+      process.env.LISTINGS_TABLE_ID,
       booking.listingId
     );
 
-    const ownerId = listing.ownerId;
+    const ownerId =
+      typeof listing.ownerId === "object"
+        ? listing.ownerId.$id
+        : listing.ownerId;
+
     log("Owner ID:", ownerId);
 
-    const tokenList = await db.listDocuments(
+    const tokenList = await db.listRows(
       process.env.DATABASE_ID,
-      process.env.PUSH_TOKENS_COLLECTION,
+      process.env.PUSH_TOKENS_TABLE_ID,
       [Query.equal("userId", ownerId)]
     );
 
-    log("Tokens found:", tokenList.documents.length);
+    log("Tokens found:", tokenList.rows.length);
 
-    if (!tokenList.documents.length) {
-      log("No push tokens found for owner");
-      return res.empty();
-    }
+    if (!tokenList.rows.length) return res.empty();
 
-    const messages = tokenList.documents.map((doc) => ({
+    const messages = tokenList.rows.map((doc) => ({
       to: doc.token,
       title: "New Booking 🎉",
       body: "You received a paid booking!"
@@ -72,7 +65,6 @@ export default async ({ req, res, log }) => {
     const result = await response.json();
     log("Expo response:", JSON.stringify(result));
 
-    // ✅ Mark as notified (prevents duplicates)
     await db.updateRow(
       process.env.DATABASE_ID,
       process.env.BOOKINGS_TABLE_ID,
