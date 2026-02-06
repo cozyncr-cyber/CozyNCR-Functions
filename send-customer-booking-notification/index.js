@@ -31,17 +31,17 @@ export default async ({ req, res, log }) => {
 
     log("Customer ID:", customerId);
 
-    const tokenList = await db.listRows(
+    const tokenList = await db.listDocuments(
       process.env.DATABASE_ID,
-      process.env.PUSH_TOKENS_TABLE_ID,
+      process.env.PUSH_TOKENS_COLLECTION,
       [Query.equal("userId", customerId)]
     );
 
-    log("Tokens found:", tokenList.rows.length);
+    log("Tokens found:", tokenList.documents.length);
 
-    if (!tokenList.rows.length) return res.empty();
+    if (!tokenList.documents.length) return res.empty();
 
-    const messages = tokenList.rows.map((doc) => ({
+    const messages = tokenList.documents.map((doc) => ({
       to: doc.token,
       title: "Booking Confirmed ✅",
       body: "Your booking has been confirmed!"
@@ -59,12 +59,14 @@ export default async ({ req, res, log }) => {
     const result = await response.json();
     log("Expo response:", JSON.stringify(result));
 
-    await db.updateRow(
+    await db.updateDocument(
       process.env.DATABASE_ID,
       process.env.BOOKINGS_TABLE_ID,
       booking.$id,
       { customerNotified: true }
     );
+
+    log("customerNotified set to true");
 
     return res.json({ success: true });
 
