@@ -10,11 +10,13 @@ export default async ({ req, res, log }) => {
 
     const db = new Databases(client);
 
-    const body = JSON.parse(req.body);
+    const body = typeof req.body === "string"
+      ? JSON.parse(req.body)
+      : req.body;
+
     const booking = body.payload || body;
     const previous = body.previous || null;
 
-    // Only send when status becomes confirmed
     if (booking.status !== "confirmed") return res.empty();
     if (previous && previous.status === "confirmed") return res.empty();
 
@@ -23,9 +25,7 @@ export default async ({ req, res, log }) => {
     const tokenList = await db.listDocuments(
       process.env.DATABASE_ID,
       process.env.PUSH_TOKENS_COLLECTION,
-      [
-        Query.equal("userId", customerId)
-      ]
+      [Query.equal("userId", customerId)]
     );
 
     if (!tokenList.documents.length) {

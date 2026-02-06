@@ -10,11 +10,14 @@ export default async ({ req, res, log }) => {
 
     const db = new Databases(client);
 
-    const body = JSON.parse(req.body);
+    const body =
+      typeof req.body === "string"
+        ? JSON.parse(req.body)
+        : req.body;
+
     const booking = body.payload || body;
     const previous = body.previous || null;
 
-    // Only trigger when paid becomes "paid"
     if (booking.paid !== "paid") return res.empty();
     if (previous && previous.paid === "paid") return res.empty();
 
@@ -29,9 +32,7 @@ export default async ({ req, res, log }) => {
     const tokenList = await db.listDocuments(
       process.env.DATABASE_ID,
       process.env.PUSH_TOKENS_COLLECTION,
-      [
-        Query.equal("userId", ownerId)
-      ]
+      [Query.equal("userId", ownerId)]
     );
 
     if (!tokenList.documents.length) {
