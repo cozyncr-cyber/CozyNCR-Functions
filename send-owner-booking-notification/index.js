@@ -15,21 +15,20 @@ export default async ({ req, res, log }) => {
         ? JSON.parse(req.body)
         : req.body;
 
-    const booking = body.payload || body;
-    const previous = body.previous || null;
+    const booking = body; // Tables update sends full row
 
     log("Owner notification triggered");
-    log("New paid value:", booking.paid);
-    log("Previous paid value:", previous?.paid);
+    log("Paid value:", booking.paid);
+    log("ownerNotified:", booking.ownerNotified);
 
-    // Only when paid becomes "paid"
+    // Only send when paid AND not already notified
     if (booking.paid !== "paid") {
-      log("Booking not marked as paid. Exiting.");
+      log("Not paid yet. Exiting.");
       return res.empty();
     }
 
-    if (previous && previous.paid === "paid") {
-      log("Already paid before. Skipping duplicate.");
+    if (booking.ownerNotified === true) {
+      log("Owner already notified. Skipping.");
       return res.empty();
     }
 
@@ -72,6 +71,16 @@ export default async ({ req, res, log }) => {
 
     const result = await response.json();
     log("Expo response:", JSON.stringify(result));
+
+    // ✅ Mark as notified (prevents duplicates)
+    await db.updateRow(
+      process.env.DATABASE_ID,
+      process.env.BOOKINGS_TABLE_ID,
+      booking.$id,
+      { ownerNotified: true }
+    );
+
+    log("ownerNotified set to true");
 
     return res.json({ success: true });
 

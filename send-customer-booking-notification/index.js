@@ -4,7 +4,7 @@ import fetch from "node-fetch";
 export default async ({ req, res, log }) => {
   try {
     const client = new Client()
-      .setEndpoint(process.env.APPWRITE_ENDPOINT) // fixed
+      .setEndpoint(process.env.APPWRITE_ENDPOINT)
       .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
       .setKey(process.env.APPWRITE_FUNCTION_API_KEY);
 
@@ -15,21 +15,20 @@ export default async ({ req, res, log }) => {
         ? JSON.parse(req.body)
         : req.body;
 
-    const booking = body.payload || body;
-    const previous = body.previous || null;
+    const booking = body; // Tables update sends full row
 
     log("Customer notification triggered");
-    log("New status:", booking.status);
-    log("Previous status:", previous?.status);
+    log("Status:", booking.status);
+    log("customerNotified:", booking.customerNotified);
 
-    // Only when status becomes confirmed
+    // Only when confirmed AND not already notified
     if (booking.status !== "confirmed") {
-      log("Status is not confirmed. Exiting.");
+      log("Status not confirmed. Exiting.");
       return res.empty();
     }
 
-    if (previous && previous.status === "confirmed") {
-      log("Already confirmed before. Skipping duplicate.");
+    if (booking.customerNotified === true) {
+      log("Customer already notified. Skipping.");
       return res.empty();
     }
 
@@ -66,6 +65,16 @@ export default async ({ req, res, log }) => {
 
     const result = await response.json();
     log("Expo response:", JSON.stringify(result));
+
+    // ✅ Mark as notified (prevents duplicates)
+    await db.updateRow(
+      process.env.DATABASE_ID,
+      process.env.BOOKINGS_TABLE_ID,
+      booking.$id,
+      { customerNotified: true }
+    );
+
+    log("customerNotified set to true");
 
     return res.json({ success: true });
 
