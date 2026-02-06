@@ -3,6 +3,18 @@ import fetch from "node-fetch";
 
 export default async ({ req, res, log }) => {
   try {
+    log("ENV DEBUG START --------");
+
+log("APPWRITE_ENDPOINT:", process.env.APPWRITE_ENDPOINT);
+log("APPWRITE_FUNCTION_PROJECT_ID:", process.env.APPWRITE_FUNCTION_PROJECT_ID);
+log("APPWRITE_FUNCTION_API_KEY exists:", !!process.env.APPWRITE_FUNCTION_API_KEY);
+
+log("DATABASE_ID:", process.env.DATABASE_ID);
+log("LISTINGS_COLLECTION:", process.env.LISTINGS_COLLECTION);
+log("PUSH_TOKENS_COLLECTION:", process.env.PUSH_TOKENS_COLLECTION);
+log("BOOKINGS_TABLE_ID:", process.env.BOOKINGS_TABLE_ID);
+
+log("ENV DEBUG END --------");
     const client = new Client()
       .setEndpoint(process.env.APPWRITE_ENDPOINT)
       .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
