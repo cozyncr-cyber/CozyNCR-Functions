@@ -1,7 +1,7 @@
 import { Client, Databases, Query } from "node-appwrite";
 import fetch from "node-fetch";
 
-export default async ({ req, log }) => {
+export default async ({ req, res, log }) => {
   try {
     const client = new Client()
       .setEndpoint(process.env.APPWRITE_FUNCTION_ENDPOINT)
@@ -11,13 +11,12 @@ export default async ({ req, log }) => {
     const db = new Databases(client);
 
     const body = JSON.parse(req.body);
-
     const booking = body.payload || body;
     const previous = body.previous || null;
 
     // Only send when status becomes confirmed
-    if (booking.status !== "confirmed") return;
-    if (previous && previous.status === "confirmed") return;
+    if (booking.status !== "confirmed") return res.empty();
+    if (previous && previous.status === "confirmed") return res.empty();
 
     const customerId = booking.customerId;
 
@@ -31,7 +30,7 @@ export default async ({ req, log }) => {
 
     if (!tokenList.documents.length) {
       log("No push tokens found for customer");
-      return;
+      return res.empty();
     }
 
     const messages = tokenList.documents.map((doc) => ({
@@ -48,7 +47,10 @@ export default async ({ req, log }) => {
 
     log(`Sent confirmation notification to ${messages.length} devices`);
 
+    return res.json({ success: true });
+
   } catch (err) {
     log("ERROR:", err);
+    return res.json({ error: "Function failed" }, 500);
   }
 };
