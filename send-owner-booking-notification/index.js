@@ -4,7 +4,7 @@ import fetch from "node-fetch";
 export default async ({ req, res, log }) => {
   try {
     const client = new Client()
-      .setEndpoint(process.env.APPWRITE_FUNCTION_ENDPOINT)
+      .setEndpoint(process.env.APPWRITE_ENDPOINT)
       .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
       .setKey(process.env.APPWRITE_FUNCTION_API_KEY);
 
@@ -18,8 +18,20 @@ export default async ({ req, res, log }) => {
     const booking = body.payload || body;
     const previous = body.previous || null;
 
-    if (booking.paid !== "paid") return res.empty();
-    if (previous && previous.paid === "paid") return res.empty();
+    log("Owner notification triggered");
+    log("New paid value:", booking.paid);
+    log("Previous paid value:", previous?.paid);
+
+    // Only when paid becomes "paid"
+    if (booking.paid !== "paid") {
+      log("Booking not marked as paid. Exiting.");
+      return res.empty();
+    }
+
+    if (previous && previous.paid === "paid") {
+      log("Already paid before. Skipping duplicate.");
+      return res.empty();
+    }
 
     const listing = await db.getDocument(
       process.env.DATABASE_ID,
@@ -28,6 +40,7 @@ export default async ({ req, res, log }) => {
     );
 
     const ownerId = listing.ownerId;
+    log("Owner ID:", ownerId);
 
     const tokenList = await db.listDocuments(
       process.env.DATABASE_ID,
@@ -35,8 +48,10 @@ export default async ({ req, res, log }) => {
       [Query.equal("userId", ownerId)]
     );
 
+    log("Tokens found:", tokenList.documents.length);
+
     if (!tokenList.documents.length) {
-      log("No push tokens found");
+      log("No push tokens found for owner");
       return res.empty();
     }
 
@@ -46,13 +61,17 @@ export default async ({ req, res, log }) => {
       body: "You received a paid booking!"
     }));
 
-    await fetch("https://exp.host/--/api/v2/push/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(messages)
-    });
+    const response = await fetch(
+      "https://exp.host/--/api/v2/push/send",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(messages)
+      }
+    );
 
-    log(`Sent notification to ${messages.length} devices`);
+    const result = await response.json();
+    log("Expo response:", JSON.stringify(result));
 
     return res.json({ success: true });
 

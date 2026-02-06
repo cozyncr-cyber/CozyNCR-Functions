@@ -4,29 +4,45 @@ import fetch from "node-fetch";
 export default async ({ req, res, log }) => {
   try {
     const client = new Client()
-      .setEndpoint(process.env.APPWRITE_FUNCTION_ENDPOINT)
+      .setEndpoint(process.env.APPWRITE_ENDPOINT) // fixed
       .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
       .setKey(process.env.APPWRITE_FUNCTION_API_KEY);
 
     const db = new Databases(client);
 
-    const body = typeof req.body === "string"
-      ? JSON.parse(req.body)
-      : req.body;
+    const body =
+      typeof req.body === "string"
+        ? JSON.parse(req.body)
+        : req.body;
 
     const booking = body.payload || body;
     const previous = body.previous || null;
 
-    if (booking.status !== "confirmed") return res.empty();
-    if (previous && previous.status === "confirmed") return res.empty();
+    log("Customer notification triggered");
+    log("New status:", booking.status);
+    log("Previous status:", previous?.status);
+
+    // Only when status becomes confirmed
+    if (booking.status !== "confirmed") {
+      log("Status is not confirmed. Exiting.");
+      return res.empty();
+    }
+
+    if (previous && previous.status === "confirmed") {
+      log("Already confirmed before. Skipping duplicate.");
+      return res.empty();
+    }
 
     const customerId = booking.customerId;
+    log("Customer ID:", customerId);
 
     const tokenList = await db.listDocuments(
       process.env.DATABASE_ID,
       process.env.PUSH_TOKENS_COLLECTION,
       [Query.equal("userId", customerId)]
     );
+
+    log("Tokens found:", tokenList.documents.length);
 
     if (!tokenList.documents.length) {
       log("No push tokens found for customer");
@@ -39,13 +55,17 @@ export default async ({ req, res, log }) => {
       body: "Your booking has been confirmed!"
     }));
 
-    await fetch("https://exp.host/--/api/v2/push/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(messages)
-    });
+    const response = await fetch(
+      "https://exp.host/--/api/v2/push/send",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(messages)
+      }
+    );
 
-    log(`Sent confirmation notification to ${messages.length} devices`);
+    const result = await response.json();
+    log("Expo response:", JSON.stringify(result));
 
     return res.json({ success: true });
 
