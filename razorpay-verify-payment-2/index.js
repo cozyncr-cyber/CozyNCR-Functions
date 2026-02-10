@@ -3,79 +3,6 @@ const sdk = require("node-appwrite");
 
 module.exports = async ({ req, res, log }) => {
   try {
-    log("🔵 Payment verification function started");
-
-    // 🔎 Validate ENV variables first
-    const requiredEnv = [
-      "APPWRITE_ENDPOINT",
-      "APPWRITE_PROJECT_ID",
-      "APPWRITE_API_KEY",
-      "APPWRITE_DATABASE_ID",
-      "APPWRITE_BOOKINGS_TABLE_ID",
-      "RAZORPAY_KEY_SECRET"
-    ];
-
-    for (const key of requiredEnv) {
-      if (!process.env[key]) {
-        log(`❌ Missing ENV variable: ${key}`);
-        return res.json(
-          { error: `Server misconfiguration: ${key} missing` },
-          500
-        );
-      }
-    }
-
-    // 🧾 Parse body safely
-    const body =
-      typeof req.body === "string"
-        ? JSON.parse(req.body)
-        : req.body;
-
-    log("📦 Incoming body:", JSON.stringify(body));
-
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      bookingId
-    } = body;
-
-    // 🛑 Hard validation
-    if (
-      !razorpay_order_id ||
-      !razorpay_payment_id ||
-      !razorpay_signature ||
-      !bookingId
-    ) {
-      log("❌ Missing required payment fields");
-      return res.json(
-        { error: "Missing payment verification data" },
-        400
-      );
-    }
-
-    log("🔐 Verifying Razorpay signature...");
-
-    // 🔐 Verify signature
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest("hex");
-
-    if (expectedSignature !== razorpay_signature) {
-      log("❌ Invalid Razorpay signature");
-      log("Expected:", expectedSignature);
-      log("Received:", razorpay_signature);
-
-      return res.json(
-        { error: "Invalid payment signature" },
-        401
-      );
-    }
-
-    log("✅ Signature verified successfully");
-
-    // 🗄 Init Appwrite SDK
     const client = new sdk.Client()
       .setEndpoint(process.env.APPWRITE_ENDPOINT)
       .setProject(process.env.APPWRITE_PROJECT_ID)
@@ -83,32 +10,75 @@ module.exports = async ({ req, res, log }) => {
 
     const databases = new sdk.Databases(client);
 
-    log("🗄 Updating booking:", bookingId);
+    // 1. Get Secret and Payload
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
-    // 📝 Update booking
+    let orderId, paymentId, signature, bookingId;
+
+    // 2. Identify Source: Webhook OR App Call
+    const isWebhook = req.headers["x-razorpay-signature"];
+
+    if (isWebhook) {
+      log("⚓ Webhook detected");
+      // Razorpay Webhooks send data in a different structure
+      const webhookSignature = req.headers["x-razorpay-signature"];
+      
+      // Verify Webhook Signature
+      const expectedSig = crypto
+        .createHmac("sha256", secret)
+        .update(JSON.stringify(req.body))
+        .digest("hex");
+
+      if (expectedSig !== webhookSignature) {
+        return res.json({ error: "Invalid Webhook Signature" }, 401);
+      }
+
+      // Extract details from Webhook Payload
+      const payment = body.payload.payment.entity;
+      paymentId = payment.id;
+      orderId = payment.order_id;
+      // Note: You must pass bookingId in "notes" when creating the order in Razorpay
+      bookingId = payment.notes.bookingId; 
+    } else {
+      log("📱 App call detected");
+      // Standard call from your React Native code
+      ({ razorpay_order_id: orderId, razorpay_payment_id: paymentId, razorpay_signature: signature, bookingId } = body);
+
+      const expectedSig = crypto
+        .createHmac("sha256", secret)
+        .update(`${orderId}|${paymentId}`)
+        .digest("hex");
+
+      if (expectedSig !== signature) {
+        return res.json({ error: "Invalid Signature" }, 401);
+      }
+    }
+
+    if (!bookingId) {
+        log("❌ No bookingId found. Ensure you pass bookingId in Razorpay notes.");
+        return res.json({ error: "No bookingId" }, 400);
+    }
+
+    // 3. Update Database (Idempotent - won't break if called twice)
+    log(`📝 Updating booking ${bookingId} to PAID`);
+    
     await databases.updateDocument(
       process.env.APPWRITE_DATABASE_ID,
       process.env.APPWRITE_BOOKINGS_TABLE_ID,
       bookingId,
       {
         paid: "paid",
-        paymentId: razorpay_payment_id,
-        orderId: razorpay_order_id,
+        paymentId: paymentId,
+        orderId: orderId,
         paidAt: new Date().toISOString(),
       }
     );
 
-    log("🎉 Booking marked as PAID successfully");
-
-    return res.json({ success: true });
+    return res.json({ success: true, message: "Booking confirmed" });
 
   } catch (err) {
-    log("🔥 Verification error:", err?.message);
-    log("🔥 Full error object:", JSON.stringify(err));
-
-    return res.json(
-      { error: "Verification failed" },
-      500
-    );
+    log("🔥 Error:", err.message);
+    return res.json({ error: err.message }, 500);
   }
 };

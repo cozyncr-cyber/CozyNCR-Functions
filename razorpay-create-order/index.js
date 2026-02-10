@@ -23,6 +23,9 @@ module.exports = async ({ req, res }) => {
       amount: amountInPaise,
       currency: "INR",
       receipt: bookingId,
+      notes: {
+        bookingId: bookingId 
+      }
     });
 
     return res.json({
