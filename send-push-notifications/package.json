@@ -1,6 +1,7 @@
 {
   "name": "send-push-notifications",
   "version": "1.0.0",
+  "type": "module",
   "dependencies": {
     "node-appwrite": "^13.0.0",
     "node-fetch": "^3.3.2"
