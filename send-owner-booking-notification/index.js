@@ -63,7 +63,7 @@ log("ENV DEBUG END --------");
     const messages = tokenList.documents.map((doc) => ({
       to: doc.token,
       title: "New Booking 🎉",
-      body: "You received a paid booking!"
+      body: "Go to cozyncr.com to accept or reject booking!"
     }));
 
     const response = await fetch(
