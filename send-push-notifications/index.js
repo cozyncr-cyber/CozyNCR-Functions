@@ -42,8 +42,7 @@ export default async ({ req, res, log, error }) => {
   }
 
     // 2. Fetch push tokens
-    const tokenQuery = 'limit(100)';
-    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents?queries[]=${encodeURIComponent(tokenQuery)}`;
+    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents}`;
     const tokenRes = await appwriteFetch(tokenPath);
     const tokenData = await tokenRes.json();
 
