@@ -9,7 +9,6 @@ export default async ({ req, res, log, error }) => {
     PUSH_TOKENS_COLLECTION 
   } = process.env;
 
-  // Helper for Appwrite REST calls
   const appwriteFetch = (path, method = 'GET', body = null) => fetch(`${APPWRITE_FUNCTION_ENDPOINT}${path}`, {
     method,
     headers: {
@@ -21,43 +20,43 @@ export default async ({ req, res, log, error }) => {
   });
 
   try {
-    // 1. Fetch unsent notifications using REST Query
-    // Query format: equal("isSent", [false])
-    const notifQuery = encodeURIComponent('equal("isSent", false)');
-    
     // 1. Fetch unsent notifications
-// We use a simpler query string format that many Appwrite REST versions prefer
-const notifRes = await appwriteFetch(
-  `/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${encodeURIComponent('equal("isSent", false)')}`
-);
+    // RECHECKED: Appwrite 1.8.1 REST Query for Booleans
+    const queryStr = 'equal("isSent", [false])'; 
+    const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${encodeURIComponent(queryStr)}`;
+    
+    const notifRes = await appwriteFetch(notifPath);
+    const data = await notifRes.json();
 
-const data = await notifRes.json();
-log(data);
-// Debugging: Log the full response to see if Appwrite is returning an error message
-if (!notifRes.ok) {
-  error(`Appwrite API Error: ${JSON.stringify(data)}`);
-  return res.json({ error: "API Failure", details: data }, 500);
-}
+    if (!notifRes.ok) {
+      error(`Appwrite API Error: ${JSON.stringify(data)}`);
+      return res.json({ error: "API Failure", details: data }, 500);
+    }
 
-const unsentDocs = data.documents;
+    const unsentDocs = data.documents || [];
 
-
-    if (!unsentDocs || unsentDocs.length === 0) {
-      log("No new notifications.");
+    if (unsentDocs.length === 0) {
+      log("No new notifications found.");
       return res.json({ message: "Nothing to process" });
     }
 
     // 2. Fetch push tokens
-    const tokenRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents?queries[]=limit(100)`);
-    const { documents: tokenDocs } = await tokenRes.json();
+    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents?queries[]=${encodeURIComponent('limit(100)')}`;
+    const tokenRes = await appwriteFetch(tokenPath);
+    const tokenData = await tokenRes.json();
 
-    const validTokens = tokenDocs
+    // FILTERING: Removes literal "token" strings seen in your DB screenshot
+    const validTokens = (tokenData.documents || [])
       .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
       .map(d => d.token);
 
-    log(`Step 5: Found ${validTokens.length} valid tokens.`);
+    log(`Step 2: Found ${validTokens.length} valid tokens.`);
 
-    // 3. Process each
+    if (validTokens.length === 0) {
+      return res.json({ message: "No valid tokens found" });
+    }
+
+    // 3. Process each notification
     for (const doc of unsentDocs) {
       const messages = validTokens.map(token => ({
         to: token,
@@ -73,15 +72,15 @@ const unsentDocs = data.documents;
       });
 
       if (expoRes.ok) {
-        // 4. Mark as sent via PATCH
+        // 4. Update isSent via PATCH
         await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents/${doc.$id}`, 'PATCH', {
           data: { isSent: true }
         });
-        log(`Updated doc: ${doc.$id}`);
+        log(`Successfully processed: ${doc.$id}`);
       }
     }
 
-    return res.json({ success: true, count: unsentDocs.length });
+    return res.json({ success: true, processedCount: unsentDocs.length });
 
   } catch (err) {
     error(`Fetch Worker Error: ${err.message}`);
