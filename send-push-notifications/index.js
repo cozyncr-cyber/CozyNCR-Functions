@@ -24,8 +24,23 @@ export default async ({ req, res, log, error }) => {
     // 1. Fetch unsent notifications using REST Query
     // Query format: equal("isSent", [false])
     const notifQuery = encodeURIComponent('equal("isSent", false)');
-    const notifRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${notifQuery}`);
-    const { documents: unsentDocs } = await notifRes.json();
+    
+    // 1. Fetch unsent notifications
+// We use a simpler query string format that many Appwrite REST versions prefer
+const notifRes = await appwriteFetch(
+  `/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${encodeURIComponent('equal("isSent", false)')}`
+);
+
+const data = await notifRes.json();
+log(data);
+// Debugging: Log the full response to see if Appwrite is returning an error message
+if (!notifRes.ok) {
+  error(`Appwrite API Error: ${JSON.stringify(data)}`);
+  return res.json({ error: "API Failure", details: data }, 500);
+}
+
+const unsentDocs = data.documents;
+
 
     if (!unsentDocs || unsentDocs.length === 0) {
       log("No new notifications.");
