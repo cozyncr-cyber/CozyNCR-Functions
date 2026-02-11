@@ -23,7 +23,7 @@ export default async ({ req, res, log, error }) => {
   try {
     // 1. Fetch unsent notifications using REST Query
     // Query format: equal("isSent", [false])
-    const notifQuery = encodeURIComponent('equal("isSent", [false])');
+    const notifQuery = encodeURIComponent('equal("isSent", false)');
     const notifRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${notifQuery}`);
     const { documents: unsentDocs } = await notifRes.json();
 
