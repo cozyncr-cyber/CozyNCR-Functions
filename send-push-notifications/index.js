@@ -21,26 +21,26 @@ export default async ({ req, res, log, error }) => {
 
   try {
   // 1. Fetch ALL notifications (No filter)
-  // Removing the queries[] parameter to test basic connectivity
-  const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents`;
-  
-  log(`TEST: Fetching all documents from: ${notifPath}`);
-  const notifRes = await appwriteFetch(notifPath);
-  const data = await notifRes.json();
+    const notifQuery = encodeURIComponent('equal("isSent", [false])');
+    const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${notifQuery}`;
+    
+    log(`Fetching unsent notifications from: ${notifPath}`);
+    const notifRes = await appwriteFetch(notifPath);
+    const notifData = await notifRes.json();
 
-  if (!notifRes.ok) {
-    error(`Appwrite API Error: ${JSON.stringify(data)}`);
-    return res.json({ error: "API Failure", details: data }, 500);
-  }
+    if (!notifRes.ok) {
+      error(`Appwrite API Error: ${JSON.stringify(notifData)}`);
+      return res.json({ error: "Notification fetch failed", details: notifData }, 500);
+    }
 
-  const unsentDocs = data.documents || [];
-  log(`TEST SUCCESS: Found ${unsentDocs.length} total documents.`);
+    const unsentDocs = notifData.documents || [];
+    log(`Found ${unsentDocs.length} unsent documents.`);
 
-  if (unsentDocs.length === 0) {
-    log("Collection is empty. Add a row manually to test.");
-    return res.json({ message: "No data in collection" });
-  }
+    if (unsentDocs.length === 0) {
+      return res.json({ message: "Nothing to process" });
+    }
 
+    return res.json({ message: "Paused for testing.." });
     // 2. Fetch push tokens
     const tokenPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents`;
     const tokenRes = await appwriteFetch(tokenPath);
