@@ -42,10 +42,11 @@ export default async ({ req, res, log, error }) => {
   }
 
     // 2. Fetch push tokens
-    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents}`;
+    const tokenPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents}`;
     const tokenRes = await appwriteFetch(tokenPath);
     const tokenData = await tokenRes.json();
 
+    log(`Step 1.5: Found ${tokenData} valid tokens.`);
     const validTokens = (tokenData.documents || [])
       .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
       .map(d => d.token);
