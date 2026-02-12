@@ -45,13 +45,23 @@ export default async ({ req, res, log, error }) => {
     const tokenPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents}`;
     const tokenRes = await appwriteFetch(tokenPath);
     const tokenData = await tokenRes.json();
+// This will now print the actual data instead of [object Object]
+log(`Step 1.6 Raw Data: ${JSON.stringify(tokenData)}`);
 
-    log(`Step 1.5: Found ${tokenData} valid tokens.`);
-    const validTokens = (tokenData.documents || [])
-      .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
-      .map(d => d.token);
+// Check for the documents array specifically
+const allDocs = tokenData.documents || [];
+log(`Step 1.7: Found ${allDocs.length} total rows in this batch.`);
 
-    log(`Step 2: Found ${validTokens.length} valid tokens.`);
+// Log the actual token values found to see why the filter is hitting them
+allDocs.forEach((d, index) => {
+    log(`Row ${index} - ID: ${d.$id} - Token Value: "${d.token}"`);
+});
+
+const validTokens = allDocs
+  .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
+  .map(d => d.token);
+
+log(`Step 2: Filtered down to ${validTokens.length} valid tokens.`);
 
     // 3. Process each notification
     for (const doc of unsentDocs) {
