@@ -21,7 +21,7 @@ export default async ({ req, res, log, error }) => {
 
   try {// 1. Fetch notifications WITHOUT queries to avoid syntax errors
     // We increase the limit to 100 so we can see more rows at once
-    const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${encodeURIComponent('limit(100)')}`;
+    const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents`;
     
     log(`Fetching documents from: ${notifPath}`);
     const notifRes = await appwriteFetch(notifPath);
@@ -43,7 +43,7 @@ export default async ({ req, res, log, error }) => {
     }
     
     // 2. Fetch push tokens
-    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents?queries[]=${encodeURIComponent('limit(100)')}`;
+    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents`;
     const tokenRes = await appwriteFetch(tokenPath);
     const tokenData = await tokenRes.json();
 // This will now print the actual data instead of [object Object]
