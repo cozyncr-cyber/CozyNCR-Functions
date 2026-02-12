@@ -19,12 +19,11 @@ export default async ({ req, res, log, error }) => {
     body: body ? JSON.stringify(body) : null
   });
 
-  try {
-  // 1. Fetch ALL notifications (No filter)
-    const notifQuery = encodeURIComponent('equal("isSent", [false])');
-    const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${notifQuery}`;
+  try {// 1. Fetch notifications WITHOUT queries to avoid syntax errors
+    // We increase the limit to 100 so we can see more rows at once
+    const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents?queries[]=${encodeURIComponent('limit(100)')}`;
     
-    log(`Fetching unsent notifications from: ${notifPath}`);
+    log(`Fetching documents from: ${notifPath}`);
     const notifRes = await appwriteFetch(notifPath);
     const notifData = await notifRes.json();
 
@@ -33,16 +32,18 @@ export default async ({ req, res, log, error }) => {
       return res.json({ error: "Notification fetch failed", details: notifData }, 500);
     }
 
-    const unsentDocs = notifData.documents || [];
-    log(`Found ${unsentDocs.length} unsent documents.`);
+    // 2. Filter locally for isSent === false
+    const allNotifications = notifData.documents || [];
+    const unsentDocs = allNotifications.filter(doc => doc.isSent === false);
+    
+    log(`Found ${allNotifications.length} total docs. Unsent: ${unsentDocs.length}`);
 
     if (unsentDocs.length === 0) {
-      return res.json({ message: "Nothing to process" });
+      return res.json({ message: "No pending notifications." });
     }
-
-    return res.json({ message: "Paused for testing.." });
+    
     // 2. Fetch push tokens
-    const tokenPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents`;
+    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents?queries[]=${encodeURIComponent('limit(100)')}`;
     const tokenRes = await appwriteFetch(tokenPath);
     const tokenData = await tokenRes.json();
 // This will now print the actual data instead of [object Object]
