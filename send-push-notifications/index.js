@@ -5,8 +5,7 @@ export default async ({ req, res, log, error }) => {
     APPWRITE_FUNCTION_ENDPOINT, 
     APPWRITE_FUNCTION_PROJECT_ID, 
     APPWRITE_FUNCTION_API_KEY,
-    DATABASE_ID,
-    PUSH_TOKENS_COLLECTION 
+    DATABASE_ID
   } = process.env;
 
   const appwriteFetch = (path, method = 'GET', body = null) => fetch(`${APPWRITE_FUNCTION_ENDPOINT}${path}`, {
@@ -63,6 +62,16 @@ const validTokens = allDocs
   .map(d => d.token);
 
 log(`Step 2: Filtered down to ${validTokens.length} valid tokens.`);
+
+// --- SAFETY GUARD ---
+    // If we didn't find any valid tokens, STOP here so the notification stays "false"
+    if (validTokens.length === 0) {
+      log("ABORTING: No valid tokens found. Notification will remain unsent for next run.");
+      return res.json({ 
+        error: "No valid tokens", 
+        details: "Check if push_tokens collection is empty or has invalid data." 
+      }, 400);
+    }
 
     // 3. Process each notification
     for (const doc of unsentDocs) {
