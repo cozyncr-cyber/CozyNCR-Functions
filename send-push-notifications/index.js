@@ -43,7 +43,7 @@ export default async ({ req, res, log, error }) => {
     }
     
     // 2. Fetch push tokens
-    const tokenPath = `/databases/${DATABASE_ID}/collections/${PUSH_TOKENS_COLLECTION}/documents`;
+    const tokenPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents`;
     const tokenRes = await appwriteFetch(tokenPath);
     const tokenData = await tokenRes.json();
 // This will now print the actual data instead of [object Object]
