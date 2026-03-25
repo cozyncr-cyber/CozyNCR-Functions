@@ -1,8 +1,7 @@
-// 1. Change 'require' to 'import'
-import { Client, Databases, Query } from "node-appwrite";
+const sdk = require("node-appwrite");
 
 export default async ({ req, res, log, error }) => {
-  log("Step 1: Starting Worker (ESM Mode)...");
+  log("Step 1: Starting Worker (Dual Mode)...");
 
   const { 
     APPWRITE_FUNCTION_ENDPOINT, 
@@ -11,32 +10,33 @@ export default async ({ req, res, log, error }) => {
     DATABASE_ID
   } = process.env;
 
-  // --- SDK INITIALIZATION ---
-  const sdkClient = new Client() // No 'sdk.' prefix needed now
+  // --- SDK INITIALIZATION (CommonJS Style) ---
+  const sdkClient = new sdk.Client()
     .setEndpoint(APPWRITE_FUNCTION_ENDPOINT)
     .setProject(APPWRITE_FUNCTION_PROJECT_ID)
     .setKey(APPWRITE_FUNCTION_API_KEY);
     
-  const databases = new Databases(sdkClient);
+  const databases = new sdk.Databases(sdkClient);
 
-  // --- SDK TEST ---
+  // --- SDK TEST (SIDE-BY-SIDE) ---
   try {
     log("SDK Test: Attempting to fetch 100 tokens via SDK...");
     
-    // Use the imported Query object directly
+    // In CommonJS, you access Query via sdk.Query
     const sdkRes = await databases.listDocuments(
       DATABASE_ID, 
       'push_tokens', 
-      [Query.limit(100)] 
+      [sdk.Query.limit(100)] 
     );
     
     log(`SDK Test Success: Found ${sdkRes.documents.length} tokens.`);
   } catch (sdkErr) {
-    // If it fails here, check if the Collection ID 'push_tokens' is correct
+    // If this still fails with "Cannot find package", 
+    // it confirms the build/deployment didn't install the dependency.
     error(`SDK Test Failed: ${sdkErr.message}`);
   }
 
-  // ... (The rest of your code stays the same)
+  // ... (Rest of your original fetch code follows)
 
   const appwriteFetch = (path, method = 'GET', body = null) => fetch(`${APPWRITE_FUNCTION_ENDPOINT}${path}`, {
     method,
