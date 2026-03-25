@@ -22,9 +22,10 @@ try {
     log("Test: Starting fetch with limit(5000)...");
     
     // We use a shorter limit for the test to ensure it doesn't timeout
-    const testLimit = 100; 
-    const query = encodeURIComponent(`limit(${testLimit})`);
-    const testPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=${query}`;
+
+    // Appwrite expects the literal string Query.limit(100)
+const queryValue = 'limit(100)'; 
+const testPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=${encodeURIComponent(queryValue)}`;
     
     const testRes = await appwriteFetch(testPath);
     
