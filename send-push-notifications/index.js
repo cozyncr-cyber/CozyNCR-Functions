@@ -1,5 +1,7 @@
+import { Client, Databases, Query } from "node-appwrite";
+
 export default async ({ req, res, log, error }) => {
-  log("Step 1: Starting dependency-free worker...");
+  log("Step 1: Starting Worker (Dual Mode)...");
 
   const { 
     APPWRITE_FUNCTION_ENDPOINT, 
@@ -7,6 +9,28 @@ export default async ({ req, res, log, error }) => {
     APPWRITE_FUNCTION_API_KEY,
     DATABASE_ID
   } = process.env;
+
+  // --- SDK INITIALIZATION ---
+  const sdkClient = new Client()
+    .setEndpoint(APPWRITE_FUNCTION_ENDPOINT)
+    .setProject(APPWRITE_FUNCTION_PROJECT_ID)
+    .setKey(APPWRITE_FUNCTION_API_KEY);
+  const databases = new Databases(sdkClient);
+
+  // --- SDK TEST (SIDE-BY-SIDE) ---
+  try {
+    log("SDK Test: Attempting to fetch 100 tokens via SDK...");
+    const sdkRes = await databases.listDocuments(
+      DATABASE_ID, 
+      'push_tokens', 
+      [Query.limit(100)]
+    );
+    log(`SDK Test Success: Found ${sdkRes.documents.length} tokens.`);
+  } catch (sdkErr) {
+    error(`SDK Test Failed: ${sdkErr.message}`);
+    // We don't return here so the rest of your original code still runs
+  }
+
 
   const appwriteFetch = (path, method = 'GET', body = null) => fetch(`${APPWRITE_FUNCTION_ENDPOINT}${path}`, {
     method,
@@ -17,36 +41,6 @@ export default async ({ req, res, log, error }) => {
     },
     body: body ? JSON.stringify(body) : null
   });
-// --- OPTIMIZED TESTING BLOCK ---
-try {
-    log("Test: Starting fetch with limit(5000)...");
-    
-    // We use a shorter limit for the test to ensure it doesn't timeout
-
-    // Appwrite expects the literal string Query.limit(100)
-const queryValue = 'limit(100)'; 
-const testPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=${encodeURIComponent(queryValue)}`;
-    
-    const testRes = await appwriteFetch(testPath);
-    
-    if (!testRes.ok) {
-        const errorBody = await testRes.text(); // Get raw text to avoid JSON parse errors
-        log(`Test Failed with status ${testRes.status}: ${errorBody}`);
-    } else {
-        const testData = await testRes.json();
-        const count = testData.documents ? testData.documents.length : 0;
-        
-        log(`Test Success! Found ${count} documents.`);
-        
-        if (count > 0) {
-            // Log only the FIRST token string, not the whole object
-            log(`Sample Token: ${testData.documents[0].token}`);
-        }
-    }
-} catch (testErr) {
-    error(`Test Block crashed: ${testErr.message}`);
-}
-// --- END TESTING BLOCK ---
 
   try {// 1. Fetch notifications WITHOUT queries to avoid syntax errors
     // We increase the limit to 100 so we can see more rows at once
