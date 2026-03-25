@@ -17,6 +17,35 @@ export default async ({ req, res, log, error }) => {
     },
     body: body ? JSON.stringify(body) : null
   });
+// --- OPTIMIZED TESTING BLOCK ---
+try {
+    log("Test: Starting fetch with limit(5000)...");
+    
+    // We use a shorter limit for the test to ensure it doesn't timeout
+    const testLimit = 100; 
+    const query = encodeURIComponent(`limit(${testLimit})`);
+    const testPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=${query}`;
+    
+    const testRes = await appwriteFetch(testPath);
+    
+    if (!testRes.ok) {
+        const errorBody = await testRes.text(); // Get raw text to avoid JSON parse errors
+        log(`Test Failed with status ${testRes.status}: ${errorBody}`);
+    } else {
+        const testData = await testRes.json();
+        const count = testData.documents ? testData.documents.length : 0;
+        
+        log(`Test Success! Found ${count} documents.`);
+        
+        if (count > 0) {
+            // Log only the FIRST token string, not the whole object
+            log(`Sample Token: ${testData.documents[0].token}`);
+        }
+    }
+} catch (testErr) {
+    error(`Test Block crashed: ${testErr.message}`);
+}
+// --- END TESTING BLOCK ---
 
   try {// 1. Fetch notifications WITHOUT queries to avoid syntax errors
     // We increase the limit to 100 so we can see more rows at once
@@ -27,14 +56,6 @@ export default async ({ req, res, log, error }) => {
     const notifData = await notifRes.json();
 
 
-    //testing
-
-    const tokePath = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=limit(5000)`;
-    
-    const tokeRes = await appwriteFetch(tokePath);
-    const tokeData = await tokeRes.json()
-    const allToke = tokeData.documents || [];
-    log(`Test: ${allToke.length}, List: ${allToke}`)
 
     if (!notifRes.ok) {
       error(`Appwrite API Error: ${JSON.stringify(notifData)}`);
