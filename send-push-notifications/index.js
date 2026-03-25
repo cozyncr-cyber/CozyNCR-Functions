@@ -1,5 +1,5 @@
 export default async ({ req, res, log, error }) => {
-  log("Step 1: Starting dependency-free worker with pagination...");
+  log("Step 1: Starting dependency-free worker...");
 
   const { 
     APPWRITE_FUNCTION_ENDPOINT, 
@@ -19,6 +19,14 @@ export default async ({ req, res, log, error }) => {
   });
 
   try {
+    // --- TEST BLOCK: CHECK TOTAL TOKENS IN COLLECTION ---
+    // This simple fetch checks the 'total' property Appwrite returns automatically
+    const countRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=${encodeURIComponent('limit(1)')}`);
+    const countData = await countRes.json();
+    const totalInDatabase = countData.total || 0;
+    log(`[TEST] Total tokens existing in DB: ${totalInDatabase}`);
+    // ----------------------------------------------------
+
     // 1. Fetch Notifications (Unsent Only)
     const notifPath = `/databases/${DATABASE_ID}/collections/notifications/documents`;
     const notifRes = await appwriteFetch(notifPath);
@@ -32,13 +40,13 @@ export default async ({ req, res, log, error }) => {
     const allNotifications = notifData.documents || [];
     const unsentDocs = allNotifications.filter(doc => doc.isSent === false);
     
-    log(`Notifications: Found ${allNotifications.length} total docs. Unsent: ${unsentDocs.length}`);
+    log(`Notifications: Unsent: ${unsentDocs.length}`);
 
     if (unsentDocs.length === 0) {
-      return res.json({ message: "No pending notifications." });
+      return res.json({ message: "No pending notifications.", totalTokensInDB: totalInDatabase });
     }
     
-    // 2. Fetch ALL push tokens using Pagination (Default limit is 25)
+    // 2. Fetch ALL push tokens using Pagination
     let allTokensFromDB = [];
     let offset = 0;
     let hasMore = true;
@@ -46,7 +54,6 @@ export default async ({ req, res, log, error }) => {
     log("Step 2: Starting paginated token fetch...");
 
     while (hasMore) {
-      // We append offset(X) to the URL. The limit stays at default (25).
       const offsetQuery = encodeURIComponent(`offset(${offset})`);
       const tokenPath = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=${offsetQuery}`;
       
@@ -55,30 +62,22 @@ export default async ({ req, res, log, error }) => {
 
       if (tokenData.documents && tokenData.documents.length > 0) {
         allTokensFromDB = [...allTokensFromDB, ...tokenData.documents];
-        offset += 25; // Move to the next batch of 25
-        log(`Fetched ${allTokensFromDB.length} tokens so far...`);
+        offset += 25; 
+        log(`Progress: Collected ${allTokensFromDB.length}/${totalInDatabase} tokens...`);
       } else {
-        hasMore = false; // No more tokens left to fetch
+        hasMore = false;
       }
-
-      // Safety break to prevent infinite loops
-      if (offset > 10000) break;
+      if (offset > 10000) break; // Infinite loop safety
     }
 
     const validTokens = allTokensFromDB
       .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
       .map(d => d.token);
 
-    log(`Step 3: Filtered down to ${validTokens.length} valid tokens.`);
-
-    if (validTokens.length === 0) {
-      log("ABORTING: No valid tokens found.");
-      return res.json({ error: "No valid tokens" }, 400);
-    }
+    log(`Step 3: Filtered to ${validTokens.length} valid Expo tokens.`);
 
     // 3. Process each notification
     for (const doc of unsentDocs) {
-      // EXPO SAFETY: Chunk validTokens into groups of 100
       for (let i = 0; i < validTokens.length; i += 100) {
         const chunk = validTokens.slice(i, i + 100);
         
@@ -96,14 +95,23 @@ export default async ({ req, res, log, error }) => {
         });
       }
 
-      // 4. Update isSent via PATCH
-      await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents/${doc.$id}`, 'PATCH', {
-        data: { isSent: true }
+      // 4. Update isSent via PATCH (Corrected body structure)
+      const updateRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents/${doc.$id}`, 'PATCH', {
+        isSent: true 
       });
-      log(`Successfully processed doc: ${doc.$id}`);
+      
+      if (updateRes.ok) {
+        log(`Successfully marked doc ${doc.$id} as sent.`);
+      } else {
+        error(`Failed to update doc ${doc.$id}`);
+      }
     }
 
-    return res.json({ success: true, processedCount: unsentDocs.length });
+    return res.json({ 
+      success: true, 
+      processedCount: unsentDocs.length, 
+      totalTokensUsed: validTokens.length 
+    });
 
   } catch (err) {
     error(`Fetch Worker Error: ${err.message}`);
