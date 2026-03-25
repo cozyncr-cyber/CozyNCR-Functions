@@ -26,6 +26,16 @@ export default async ({ req, res, log, error }) => {
     const notifRes = await appwriteFetch(notifPath);
     const notifData = await notifRes.json();
 
+
+    //testing
+
+    const tokePath = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=limit(5000)`;
+    
+    const tokeRes = await appwriteFetch(tokePath);
+    const tokeData = await tokeRes.json()
+    const allToke = tokeData.documents || [];
+    log(`Test: ${allToke.length}, List: ${allToke}`)
+
     if (!notifRes.ok) {
       error(`Appwrite API Error: ${JSON.stringify(notifData)}`);
       return res.json({ error: "Notification fetch failed", details: notifData }, 500);
