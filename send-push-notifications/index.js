@@ -52,7 +52,7 @@ export default async ({ req, res, log, error }) => {
       });
 
       const data = await response.json();
-      log(data)
+      log(data.documents.length)
       const nextBatch = data.documents || [];
 
       if (nextBatch.length === 0 || nextBatch[0].$id === lastId) {
