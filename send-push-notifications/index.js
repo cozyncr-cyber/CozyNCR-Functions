@@ -39,6 +39,7 @@ export default async ({ req, res, log, error }) => {
       // IMPORTANT: We are NOT putting this in the URL.
       // We are putting it in a specialized header that the Appwrite Load Balancer respects.
       const queries = [`after("${lastId}")`, `limit(25)`];
+      log(lastId);
       
       const response = await fetch(`${APPWRITE_FUNCTION_ENDPOINT}/databases/${DATABASE_ID}/collections/push_tokens/documents`, {
         method: 'GET',
@@ -51,6 +52,7 @@ export default async ({ req, res, log, error }) => {
       });
 
       const data = await response.json();
+      log(data)
       const nextBatch = data.documents || [];
 
       if (nextBatch.length === 0 || nextBatch[0].$id === lastId) {
