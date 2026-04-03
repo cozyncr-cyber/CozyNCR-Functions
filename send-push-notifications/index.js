@@ -1,5 +1,5 @@
 export default async ({ req, res, log, error }) => {
-  log("Step 1: Starting Diagnostic Worker...");
+  log("Step 1: Starting Cursor-Based Worker...");
 
   const { 
     APPWRITE_FUNCTION_ENDPOINT, 
@@ -8,15 +8,8 @@ export default async ({ req, res, log, error }) => {
     DATABASE_ID
   } = process.env;
 
-  const appwriteFetch = (path, method = 'GET', body = null, queryArray = []) => {
-    let finalPath = path;
-    if (queryArray.length > 0) {
-      // Use the standard array format but perfectly encoded
-      const queryStr = queryArray.map(q => `queries[]=${encodeURIComponent(q)}`).join('&');
-      finalPath += `?${queryStr}`;
-    }
-
-    return fetch(`${APPWRITE_FUNCTION_ENDPOINT}${finalPath}`, {
+  const appwriteFetch = (path, method = 'GET', body = null) => {
+    return fetch(`${APPWRITE_FUNCTION_ENDPOINT}${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -28,67 +21,57 @@ export default async ({ req, res, log, error }) => {
   };
 
   try {
-    // --- 1. TEST THE COLLECTION ---
-    const totalRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/push_tokens/documents`);
-    const totalData = await totalRes.json();
-    const totalInDB = totalData.total || 0;
-    const rawDocs = totalData.documents || [];
+    // 1. Initial Fetch to get the first page and total
+    const firstRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/push_tokens/documents`);
+    const firstData = await firstRes.json();
     
-    log(`[TEST] DB Total: ${totalInDB}. Batch Size: ${rawDocs.length}`);
+    let allTokens = firstData.documents || [];
+    const totalInDB = firstData.total || 0;
+    
+    log(`[START] Found ${allTokens.length} initial tokens. Total in DB: ${totalInDB}`);
 
-    if (rawDocs.length > 0) {
-        log(`[DIAGNOSTIC] Sample Token from DB: "${rawDocs[0].token}"`);
-    } else {
-        log(`[DIAGNOSTIC] Collection returned NO documents. Check permissions!`);
-    }
-
-    // --- 2. THE PAGINATION ---
-    let allTokens = [];
-    let offset = 0;
-
+    // 2. CURSOR PAGINATION (No 'offset' or 'limit' keywords)
+    // We fetch until our local array matches the total count
     while (allTokens.length < totalInDB) {
-      const tokenRes = await appwriteFetch(
-        `/databases/${DATABASE_ID}/collections/push_tokens/documents`, 
-        'GET', 
-        null, 
-        [`limit(25)`, `offset(${offset})`]
-      );
+      const lastId = allTokens[allTokens.length - 1].$id;
       
-      const tokenData = await tokenRes.json();
-      const docs = tokenData.documents || [];
-
-      if (docs.length === 0) break;
-
-      allTokens = [...allTokens, ...docs];
-      offset += 25;
-      log(`Fetched ${allTokens.length} / ${totalInDB}...`);
+      // We use the 'after' query. This is much more stable than offset.
+      // Format: ?queries[]=after("ID")
+      const query = encodeURIComponent(`after("${lastId}")`);
+      const path = `/databases/${DATABASE_ID}/collections/push_tokens/documents?queries[]=${query}`;
       
-      if (offset > 5000) break;
+      log(`Fetching next batch after ID: ${lastId}`);
+      
+      const nextRes = await appwriteFetch(path);
+      const nextData = await nextRes.json();
+      const nextBatch = nextData.documents || [];
+
+      if (nextBatch.length === 0) {
+        log("No more documents returned by server.");
+        break;
+      }
+
+      allTokens = [...allTokens, ...nextBatch];
+      log(`Progress: ${allTokens.length} / ${totalInDB}`);
     }
 
-    // --- 3. THE FILTER ---
-    // We log the count BEFORE and AFTER the filter to see if the filter is the "killer"
+    // 3. Filter
     const expoTokens = allTokens
       .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
       .map(d => d.token);
 
-    log(`Filter Result: ${allTokens.length} total docs -> ${expoTokens.length} Expo tokens.`);
+    log(`Final: Collected ${allTokens.length} docs. Valid Expo tokens: ${expoTokens.length}`);
 
-    // --- 4. NOTIFICATIONS ---
+    // 4. Notifications
     const notifRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents`);
     const notifData = await notifRes.json();
     const unsentDocs = (notifData.documents || []).filter(doc => doc.isSent === false);
 
     if (unsentDocs.length === 0 || expoTokens.length === 0) {
-        return res.json({ 
-            success: true, 
-            tokensFound: allTokens.length, 
-            expoTokens: expoTokens.length,
-            unsentNotifs: unsentDocs.length 
-        });
+      return res.json({ success: true, tokens: expoTokens.length, unsent: unsentDocs.length });
     }
 
-    // --- 5. SENDING ---
+    // 5. Send
     for (const doc of unsentDocs) {
       for (let i = 0; i < expoTokens.length; i += 100) {
         const chunk = expoTokens.slice(i, i + 100);
@@ -98,10 +81,11 @@ export default async ({ req, res, log, error }) => {
           body: JSON.stringify(chunk.map(t => ({ to: t, title: doc.title, body: doc.body })))
         });
       }
+      // Corrected PATCH
       await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents/${doc.$id}`, 'PATCH', { isSent: true });
     }
 
-    return res.json({ success: true, processed: unsentDocs.length });
+    return res.json({ success: true, totalSent: unsentDocs.length });
 
   } catch (err) {
     error(`Crash: ${err.message}`);
