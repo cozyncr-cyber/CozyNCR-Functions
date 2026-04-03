@@ -1,5 +1,5 @@
 export default async ({ req, res, log, error }) => {
-  log("Step 1: Starting Base64-Encoded Worker...");
+  log("Step 1: Starting Diagnostic Worker...");
 
   const { 
     APPWRITE_FUNCTION_ENDPOINT, 
@@ -8,17 +8,12 @@ export default async ({ req, res, log, error }) => {
     DATABASE_ID
   } = process.env;
 
-  // Helper that encodes queries into a Base64 string for the URL
   const appwriteFetch = (path, method = 'GET', body = null, queryArray = []) => {
     let finalPath = path;
-    
     if (queryArray.length > 0) {
-      // Step A: Convert array to JSON string: '["limit(100)", "offset(0)"]'
-      const jsonQueries = JSON.stringify(queryArray);
-      // Step B: URL Encode it (safe for all servers)
-      const encoded = encodeURIComponent(jsonQueries);
-      // Step C: Append to URL using the 'queries' key
-      finalPath += `?queries=${encoded}`;
+      // Use the standard array format but perfectly encoded
+      const queryStr = queryArray.map(q => `queries[]=${encodeURIComponent(q)}`).join('&');
+      finalPath += `?${queryStr}`;
     }
 
     return fetch(`${APPWRITE_FUNCTION_ENDPOINT}${finalPath}`, {
@@ -33,81 +28,83 @@ export default async ({ req, res, log, error }) => {
   };
 
   try {
-    // --- STEP 1: TOKEN TEST ---
+    // --- 1. TEST THE COLLECTION ---
     const totalRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/push_tokens/documents`);
     const totalData = await totalRes.json();
     const totalInDB = totalData.total || 0;
+    const rawDocs = totalData.documents || [];
     
-    log(`[TEST] Database reports ${totalInDB} total tokens.`);
+    log(`[TEST] DB Total: ${totalInDB}. Batch Size: ${rawDocs.length}`);
 
+    if (rawDocs.length > 0) {
+        log(`[DIAGNOSTIC] Sample Token from DB: "${rawDocs[0].token}"`);
+    } else {
+        log(`[DIAGNOSTIC] Collection returned NO documents. Check permissions!`);
+    }
+
+    // --- 2. THE PAGINATION ---
     let allTokens = [];
     let offset = 0;
 
-    log("Step 2: Starting Base64 Pagination...");
-
     while (allTokens.length < totalInDB) {
-      // Use the exact strings the API expects
-      const queryInstructions = [`limit(100)`, `offset(${offset})`];
-      
       const tokenRes = await appwriteFetch(
         `/databases/${DATABASE_ID}/collections/push_tokens/documents`, 
         'GET', 
         null, 
-        queryInstructions
+        [`limit(25)`, `offset(${offset})`]
       );
       
       const tokenData = await tokenRes.json();
+      const docs = tokenData.documents || [];
 
-      if (tokenData.documents && tokenData.documents.length > 0) {
-        // Validation check
-        if (allTokens.length > 0 && tokenData.documents[0].$id === allTokens[0].$id) {
-          throw new Error("Pagination Failed: Server is still ignoring queries. Stopping.");
-        }
+      if (docs.length === 0) break;
 
-        allTokens = [...allTokens, ...tokenData.documents];
-        offset += 100;
-        log(`Progress: ${allTokens.length} / ${totalInDB}`);
-      } else {
-        break;
-      }
+      allTokens = [...allTokens, ...docs];
+      offset += 25;
+      log(`Fetched ${allTokens.length} / ${totalInDB}...`);
+      
+      if (offset > 5000) break;
     }
 
-    const uniqueTokens = Array.from(new Set(allTokens
+    // --- 3. THE FILTER ---
+    // We log the count BEFORE and AFTER the filter to see if the filter is the "killer"
+    const expoTokens = allTokens
       .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
-      .map(d => d.token)));
+      .map(d => d.token);
 
-    log(`[TEST RESULT] Successfully collected ${uniqueTokens.length} unique tokens.`);
+    log(`Filter Result: ${allTokens.length} total docs -> ${expoTokens.length} Expo tokens.`);
 
-    // --- STEP 2: NOTIFICATIONS ---
+    // --- 4. NOTIFICATIONS ---
     const notifRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents`);
     const notifData = await notifRes.json();
     const unsentDocs = (notifData.documents || []).filter(doc => doc.isSent === false);
 
-    if (unsentDocs.length === 0) {
-      return res.json({ success: true, tokens: uniqueTokens.length, message: "No notifications." });
+    if (unsentDocs.length === 0 || expoTokens.length === 0) {
+        return res.json({ 
+            success: true, 
+            tokensFound: allTokens.length, 
+            expoTokens: expoTokens.length,
+            unsentNotifs: unsentDocs.length 
+        });
     }
 
-    // --- STEP 3: SENDING ---
+    // --- 5. SENDING ---
     for (const doc of unsentDocs) {
-      for (let i = 0; i < uniqueTokens.length; i += 100) {
-        const chunk = uniqueTokens.slice(i, i + 100);
+      for (let i = 0; i < expoTokens.length; i += 100) {
+        const chunk = expoTokens.slice(i, i + 100);
         await fetch("https://exp.host/--/api/v2/push/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(chunk.map(t => ({ to: t, title: doc.title, body: doc.body })))
         });
       }
-
-      // Mark as sent
-      await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents/${doc.$id}`, 'PATCH', {
-        isSent: true
-      });
+      await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents/${doc.$id}`, 'PATCH', { isSent: true });
     }
 
-    return res.json({ success: true, count: unsentDocs.length });
+    return res.json({ success: true, processed: unsentDocs.length });
 
   } catch (err) {
-    error(`Final Error: ${err.message}`);
+    error(`Crash: ${err.message}`);
     return res.json({ error: err.message }, 500);
   }
 };
