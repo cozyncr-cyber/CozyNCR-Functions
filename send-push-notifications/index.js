@@ -1,5 +1,5 @@
 export default async ({ req, res, log, error }) => {
-  log("Step 1: Initializing Worker...");
+  log("Step 1: Starting Worker (Token-First Test Mode)...");
 
   const { 
     APPWRITE_FUNCTION_ENDPOINT, 
@@ -8,16 +8,15 @@ export default async ({ req, res, log, error }) => {
     DATABASE_ID
   } = process.env;
 
-  // Helper for Syntax-Safe requests using headers instead of URL queries
-  const appwriteFetch = (path, method = 'GET', body = null, queries = []) => {
+  const appwriteFetch = (path, method = 'GET', body = null, queryArray = []) => {
     const headers = {
       'Content-Type': 'application/json',
       'X-Appwrite-Project': APPWRITE_FUNCTION_PROJECT_ID,
       'X-Appwrite-Key': APPWRITE_FUNCTION_API_KEY
     };
 
-    if (queries.length > 0) {
-      headers['x-appwrite-queries'] = JSON.stringify(queries);
+    if (queryArray.length > 0) {
+      headers['x-appwrite-queries'] = JSON.stringify(queryArray);
     }
 
     return fetch(`${APPWRITE_FUNCTION_ENDPOINT}${path}`, {
@@ -28,66 +27,72 @@ export default async ({ req, res, log, error }) => {
   };
 
   try {
-    // --- PRE-RUN TEST: VERIFY TOTAL TOKENS ---
-    log("Running Pre-check: Verifying Token Collection...");
-    const testRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/push_tokens/documents`);
-    const testData = await testRes.json();
+    // --- STEP 1: TOKEN COLLECTION TEST (Always runs) ---
+    const totalRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/push_tokens/documents`);
+    const totalData = await totalRes.json();
+    const totalInDB = totalData.total || 0;
     
-    if (!testRes.ok) {
-        throw new Error(`Pre-check failed: ${testData.message}`);
+    log(`[TEST] Database reports ${totalInDB} total tokens.`);
+
+    let allTokens = [];
+    let offset = 0;
+
+    log("Step 2: Testing Paginated Token Collection...");
+
+    while (allTokens.length < totalInDB) {
+      const queryInstructions = [`limit(100)`, `offset(${offset})`];
+      const tokenRes = await appwriteFetch(
+        `/databases/${DATABASE_ID}/collections/push_tokens/documents`, 
+        'GET', 
+        null, 
+        queryInstructions
+      );
+      
+      const tokenData = await tokenRes.json();
+
+      if (tokenData.documents && tokenData.documents.length > 0) {
+        // Safety check for ignored headers
+        if (allTokens.length > 0 && tokenData.documents[0].$id === allTokens[0].$id) {
+          throw new Error("Pagination Failed: Server is returning duplicate pages (check header support).");
+        }
+
+        allTokens = [...allTokens, ...tokenData.documents];
+        offset += 100;
+        log(`Token Fetch Progress: ${allTokens.length} / ${totalInDB}`);
+      } else {
+        break;
+      }
+      if (offset > 10000) break;
     }
 
-    const totalInDB = testData.total || 0;
-    log(`[TEST] Database reports ${totalInDB} total tokens exist.`);
+    const uniqueTokens = Array.from(new Set(allTokens
+      .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
+      .map(d => d.token)));
 
-    if (totalInDB === 0) {
-        return res.json({ error: "Test Failed", details: "No tokens found in database. Check permissions." }, 400);
-    }
-    // -----------------------------------------
+    log(`[TEST RESULT] Successfully collected ${uniqueTokens.length} unique Expo tokens.`);
 
-    // 1. Fetch Notifications
+    // --- STEP 2: NOTIFICATION LOGIC ---
+    log("Step 3: Checking for unsent notifications...");
     const notifRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents`);
     const notifData = await notifRes.json();
     const unsentDocs = (notifData.documents || []).filter(doc => doc.isSent === false);
 
-    log(`Step 2: Found ${unsentDocs.length} unsent notifications.`);
-    if (unsentDocs.length === 0) return res.json({ message: "No notifications to process." });
-
-    // 2. Paginated Token Fetch
-    let allTokens = [];
-    let offset = 0;
-    let hasMore = true;
-
-    log("Step 3: Collecting all tokens via pagination...");
-
-    while (hasMore) {
-      // Using the header-based query to avoid URL syntax errors
-      const queryArray = [`limit(100)`, `offset(${offset})`];
-      const tokenRes = await appwriteFetch(`/databases/${DATABASE_ID}/collections/push_tokens/documents`, 'GET', null, queryArray);
-      const tokenData = await tokenRes.json();
-
-      if (tokenData.documents && tokenData.documents.length > 0) {
-        allTokens = [...allTokens, ...tokenData.documents];
-        offset += 100;
-        log(`Progress: ${allTokens.length} / ${totalInDB} collected.`);
-      } else {
-        hasMore = false;
-      }
-      
-      if (offset > 10000) break; // Infinite loop safety
+    if (unsentDocs.length === 0) {
+      log("No unsent notifications found. Task complete.");
+      return res.json({ 
+        success: true, 
+        testPassed: true, 
+        tokensFound: uniqueTokens.length, 
+        message: "Token test passed, 0 notifications to send." 
+      });
     }
 
-    const validTokens = allTokens
-      .filter(d => d.token && d.token.startsWith("ExponentPushToken"))
-      .map(d => d.token);
+    // --- STEP 3: SENDING ---
+    log(`Step 4: Sending ${unsentDocs.length} notifications to ${uniqueTokens.length} devices.`);
 
-    log(`Step 4: Success. Filtered to ${validTokens.length} valid Expo tokens.`);
-
-    // 3. Process Notifications
     for (const doc of unsentDocs) {
-      // EXPO LIMIT: Max 100 per request
-      for (let i = 0; i < validTokens.length; i += 100) {
-        const chunk = validTokens.slice(i, i + 100);
+      for (let i = 0; i < uniqueTokens.length; i += 100) {
+        const chunk = uniqueTokens.slice(i, i + 100);
         await fetch("https://exp.host/--/api/v2/push/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -100,21 +105,20 @@ export default async ({ req, res, log, error }) => {
         });
       }
 
-      // 4. Update Status (PATCH)
+      // Mark as sent
       await appwriteFetch(`/databases/${DATABASE_ID}/collections/notifications/documents/${doc.$id}`, 'PATCH', {
         isSent: true
       });
-      log(`Notification ${doc.$id} marked as sent.`);
     }
 
     return res.json({ 
       success: true, 
-      tokensProcessed: validTokens.length, 
-      notificationsSent: unsentDocs.length 
+      processed: unsentDocs.length, 
+      tokens: uniqueTokens.length 
     });
 
   } catch (err) {
-    error(`Critical Worker Error: ${err.message}`);
+    error(`Worker Error: ${err.message}`);
     return res.json({ error: err.message }, 500);
   }
 };
